@@ -1,3 +1,29 @@
 import kinetics
 import matplotlib.pyplot as plt
+step1=kinetics.Generic(params=['Vm','km1','km2','Ki'],species=['activity_1','activity_2'],rate_equation='(Vm*activity_1*activity_2)/(km1*activity_2*(1+activity_2/Ki)+km2*activity_1+activity_1*activity_2)')
+#with this we are able to design our reaction rate based on activity coefficients, however, now we need to find a way to properly define the activity coefficients
 from scipy.stats import norm
+from thermo.unifac import UNIFAC, UFSG, UFIP
+T = 60.0 + 273.15               # Temperature/ K
+xs = [0.5, 0.5]                 # Mole fractions
+chemgroups = [
+    {1:2, 2:4},
+    {1:1, 2:1, 18:1}
+]
+#this is to define the activity coefficients
+#chem groups question:i assume that they are related to the components we will work with
+#since our first goal is to replicate the behaviour present in the paper, it is best to start with those components
+model = UNIFAC.from_subgroups(
+    T=T,
+    xs=xs,
+    chemgroups=chemgroups,
+    subgroups=UFSG,
+    interaction_data=UFIP,
+    version=0
+)
+#with this, we should be able to obtain the activity coefficients we need to input in our kinetics function
+#first we define the parameters present in our reaction rate
+#the values provided are sample values and are not indicative to what we should obtain later on
+step1.parameters={'Vm':1,'km1':0.1,'km2':0.1,'Ki':0.1}
+actv1=model.gammas[0]   #activity coefficient for the first component
+actv2=model.gammas[1]   #activity coefficient for the second component
