@@ -27,3 +27,10 @@ model = UNIFAC.from_subgroups(
 step1.parameters={'Vm':1,'km1':0.1,'km2':0.1,'Ki':0.1}
 actv1=model.gammas[0]   #activity coefficient for the first component
 actv2=model.gammas[1]   #activity coefficient for the second component
+Vi=kinetics.Model()
+Vi.append(step1)
+Vi.set_species={'activity_1':actv1,'activity_2':actv2}
+#Now with the model set we can try and run the model to see what initial reaction rate we get
+Vi.setup_model()
+Vi.run_model()
+#proggress for now, srry teach :(
