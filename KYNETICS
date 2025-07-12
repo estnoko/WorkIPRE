@@ -1,10 +1,34 @@
 import kinetics
 import matplotlib.pyplot as plt
-step1=kinetics.Generic(params=['Vm','km1','km2','Ki'],species=['activity_1','activity_2'],rate_equation='(Vm*activity_1*activity_2)/(km1*activity_2*(1+activity_2/Ki)+km2*activity_1+activity_1*activity_2)')
+initial_rx_rate=kinetics.Generic(params=['Vm','km1','km2','Ki'],species=['activity_1','activity_2'],rate_equation='(Vm*activity_1*activity_2)/(km1*activity_2*(1+activity_2/Ki)+km2*activity_1+activity_1*activity_2)')
 #with this we are able to design our reaction rate based on activity coefficients, however, now we need to find a way to properly define the activity coefficients
+#activity is coefficients multiplied by molar fractions
+#P=1bar T=40 C
+#to obtain any molar fraction we must define density and molar mass of componentes using the CoolProp library
+import CoolProp.CoolProp as CP 
+def get_component_properties(component,T,P):
+    # the fed inputs are the component name, temperature in Kelvin and pressure in pascals
+    #now we define the molar mass and density of the components using CoolProp
+    molar_mass=CP.PropsSI('M',component,'T',T,'P',P)
+    density=CP.PropsSI('D',component,'T',T,'P',P)
+    #we return the molar mass and density
+    return molar_mass,density
+#now we will get the activity coefficients in the desired solution using the UNIFAC method
+    
+#first we import the necessary libraries
 from scipy.stats import norm
 from thermo.unifac import UNIFAC, UFSG, UFIP
-T = 60.0 + 273.15               # Temperature/ K
+T = 40 + 273.15               # insert the corresponding Temperature in 'K'
+P=100000                      # insert the corresponding pressure in 'Pa'  
+#now we will define the molar fractions and the ammount of components present in the solution
+#you can use get_component_properties to facilitate converting all your values into molar fractions
+components_used=[]       #list of components used in the solution, they must be written in the CoolProp format
+number_of_components=4           #number of components present in the solution
+for i in range(number_of_components):
+    component_name=input('Enter the name of component {i+1} in CoolProp format:')
+    components_used.append(component_name)
+#Now that we defined the components present, we calculate their propperties with CoolProp and define their corresponding molar fraction
+
 xs = [0.5, 0.5]                 # Mole fractions
 chemgroups = [
     {1:2, 2:4},
@@ -33,4 +57,4 @@ Vi.set_species={'activity_1':actv1,'activity_2':actv2}
 #Now with the model set we can try and run the model to see what initial reaction rate we get
 Vi.setup_model()
 Vi.run_model()
-#proggress for now, srry teach :(
+
