@@ -74,7 +74,7 @@ def get_activity_coefficients(substrates_used,solvent_used,experiments_molar_fra
     #first we must define the chemical subgroups of every component
     chemical_subgroups=[]
     number_of_comp=len(substrates_used)+ 1  #+1 for the solvent used
-    list_of_all_components=substrates_used+solvent_used  #this creates a list with all components present in the solution
+    list_of_all_components=substrates_used+[solvent_used]  #this creates a list with all components present in the solution
     for i in range(number_of_comp):
         component_name=list_of_all_components[i]
         component_subgroups_names = Groups(component_name)
@@ -99,37 +99,29 @@ def initial_reaction_rate(substrates_used,concentration_data,experimental_mole_f
     #Comment to teach:This part would require to use a python solver to find the correct kinetic parameters from the reaction rate equation, will have preedetermined values as stand-ins for now
     initial_rx_rates=[]
     #first we define the kinetic equation
-    initial_rx_rate=kinetics.Generic(params=['Vm','km1','km2','Ki'],species=['activity_1','activity_2'],rate_equation='(Vm*activity_1*activity_2)/(km1*activity_2*(1+activity_2/Ki)+km2*activity_1+activity_1*activity_2)')
+    #after going insane thinking about the system, i concluded that it is best to not use the kinetics library, instead we will directly calculate the initial reaction rate using the parameters and the activities of the components
+    #initial_rx_rate=kinetics.Generic(params=['Vm','km1','km2','Ki'],species=['activity_1','activity_2'],rate_equation='(Vm*activity_1*activity_2)/(km1*activity_2*(1+activity_2/Ki)+km2*activity_1+activity_1*activity_2)')
     #we will use the activity coefficients and molar fractions to obtain the activities of the two components of interest
     number_of_experiments=len(experimental_mole_fractions)
     for i in range(number_of_experiments):
-        initial_rx_rate.parameters={'Vm':params[0],'km1':params[1],'km2':params[2],'Ki':params[3]}   #This parameters are to be perfected with a solver
+        #initial_rx_rate.parameters={'Vm':params[0],'km1':params[1],'km2':params[2],'Ki':params[3]}   #This parameters are to be perfected with a solver
         #we will use the first two components as the ones of interest
         actv_first_component=experimental_mole_fractions[i][1][0]*experimental_activity_coeffs[i][1][0]  #activity of the first component in the i experiment
         actv_second_component=experimental_mole_fractions[i][1][1]*experimental_activity_coeffs[i][1][1]  #activity of the second component in the i experiment
         #now that we set the activities of the experiment, we can calculate the corresponding initial reaction rate
-        Vi_i=kinetics.Model()
-        Vi_i.append(initial_rx_rate)
-        Vi_i.set_species={'activity_1':actv_first_component,'activity_2':actv_second_component}
+        #Vi_i=kinetics.Model()
+        #Vi_i.append(initial_rx_rate)
+        #Vi_i.set_species={'activity_1':actv_first_component,'activity_2':actv_second_component}
         #Now with the model set we can try and run the model to see what initial reaction rate we get
-        Vi_i.setup_model()
-        initial_rate_rx_i=Vi_i.run_model()
+        #Vi_i.setup_model()
+        #initial_rate_rx_i=Vi_i.run_model()
+        Vm=params[0]  #maximum initial reaction rate
+        km1=params[1] #rate constant for the first component
+        km2=params[2] #rate constant for the second component
+        Ki=params[3] #inhibition constant
+        initial_rate_rx_i=(Vm*actv_first_component*actv_second_component)/(km1*actv_second_component*(1+actv_second_component/Ki)+km2*actv_first_component+actv_first_component*actv_second_component)
         #we append the initial reaction rate of the i experiment
         initial_rx_rates.append([i+1,initial_rate_rx_i])
-    #now we can plot the results
-    desired_component_conc=[]
-    initial_reaction_rates=[]
-    for i in range(number_of_experiments):
-        desired_component_conc.append(concentration_data[0][0][i])
-        initial_reaction_rates.append(initial_rx_rates[i][1])
-    plt.figure()
-    plt.plot(desired_component_conc, initial_reaction_rates, "o-", label=f"{substrates_used[0]} concentration")
-    plt.xlabel(f"Concentration of {substrates_used[0]} ")
-    plt.ylabel("Initial Reaction Rate (units)")
-    plt.title(f"Initial Reaction Rate vs {substrates_used[0]} Concentration")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
     return initial_rx_rates
 #first we will define the objective function to minimize the difference between the experimental intial rx rates and the calculated ones
 def objective_function(params,experimental_data,substrates_used,concentration_data,experimental_mole_fractions,experimental_activity_coeffs):
@@ -143,6 +135,12 @@ def objective_function(params,experimental_data,substrates_used,concentration_da
     residuals = [calc - exp for calc, exp in zip(calculated_data, experimental_data)]    #with this we put the elements in calculated_data and experimental_data into pairs and calculate the difference between them
     return np.array(residuals)  # least_squares will minimize the sum of squares of these
 #now that we defined our objective function, we can use least_squares to optimize the model parameters
+def optimize_model_parameters(experimental_rates,substrates_used,concentration_data,experimental_mole_fractions,experimental_activity_coeffs):
+    #this function will return the optimized model parameters
+    initial_params=[20,0.1,0.1,0.1]   #initial guess for the parameters
+    bounds=([0, 0, 0, 0], [np.inf, 1, 1, 1])   #bounds for the parameters
+    result=least_squares(objective_function,initial_params, args=(experimental_rates, substrates_used,concentration_data, experimental_mole_fractions, experimental_activity_coeffs), bounds=bounds)
+    return result.x  #optimized parameters
 #Now we can use the defined functions to obtain all the data we desire
 #we will obtain the results for our different experiments and solvents used
 #we will also plot the different results in a single graph
@@ -156,14 +154,11 @@ substrates_molar_fractions=get_components_molar_fractions(substrates_and_h2o_pre
 oacid_and_ethanol_coeffs=get_activity_coefficients(substrates_and_h2o_present,solvent_to_evaluate,substrates_molar_fractions,T,P)
 #this will give us the activity coefficients of each component in each experiment (note that for this final part we only care about oacid and ethanol coefficients)
 #now we need to calculate the initial reaction rates, giving us the values that we will need to optimize
-initial_params=[20,0.1,0.1,0.1]   #initial guess
-bounds=([0, 0, 0, 0], [np.inf, 1, 1, 1])   #bounds for the parameters
-result=least_squares(objective_function,initial_params, args=(experimental_initial_rx_rates, substrates_and_h2o_present, concentration_datas, substrates_molar_fractions, oacid_and_ethanol_coeffs), bounds=bounds)
-optimized_params=result.x
+optimized_params=optimize_model_parameters(experimental_initial_rx_rates, substrates_and_h2o_present, concentration_datas, substrates_molar_fractions, oacid_and_ethanol_coeffs)
 #now that we have the optimized parameters, we can start plotting the results for the different solvents
 #now we will calculate the initial reaction rates for all solvents using this optimized parameters
 solvents_initial_rx_rates=[]    #this list will store the initial reaction rates for each solvent
-solvents_activity_coeffs=[]   #thislist will store the activity coeffs of oleic acid and ethanol for each solvent
+solvents_activity_coeffs=[]   #this list will store the activity coeffs of oleic acid and ethanol for each solvent
 for i in range(len(solvent_used)):
     solvent_to_evaluate=solvent_used[i]
     susbtrates_molar_fractions_for_specific_solvent=get_components_molar_fractions(substrates_and_h2o_present, concentration_datas, solvent_to_evaluate, T, P)
