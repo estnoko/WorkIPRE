@@ -131,6 +131,18 @@ def initial_reaction_rate(substrates_used,concentration_data,experimental_mole_f
     plt.grid(True)
     plt.show()
     return initial_rx_rates
+#first we will define the objective function to minimize the difference between the experimental intial rx rates and the calculated ones
+def objective_function(params,experimental_data,substrates_used,concentration_data,experimental_mole_fractions,experimental_activity_coeffs):
+    #this function will return the sum of squared differences between the experimental initial reaction rates and the calculated ones
+    calculated_initial_rx_rates=initial_reaction_rate(substrates_used,concentration_data,experimental_mole_fractions,experimental_activity_coeffs,params)
+    #now we will extract the initial rx rates from the calculated list
+    calculated_data=[]
+    for i in range(len(calculated_initial_rx_rates)):
+        calculated_data.append(calculated_initial_rx_rates[i][1])
+    #now that we have the calculated data, we can calculate the sum of squared differences
+    residuals = [calc - exp for calc, exp in zip(calculated_data, experimental_data)]    #with this we put the elements in calculated_data and experimental_data into pairs and calculate the difference between them
+    return np.array(residuals)  # least_squares will minimize the sum of squares of these
+#now that we defined our objective function, we can use least_squares to optimize the model parameters
 #Now we can use the defined functions to obtain all the data we desire
 #we will obtain the results for our different experiments and solvents used
 #we will also plot the different results in a single graph
@@ -144,27 +156,63 @@ substrates_molar_fractions=get_components_molar_fractions(substrates_and_h2o_pre
 oacid_and_ethanol_coeffs=get_activity_coefficients(substrates_and_h2o_present,solvent_to_evaluate,substrates_molar_fractions,T,P)
 #this will give us the activity coefficients of each component in each experiment (note that for this final part we only care about oacid and ethanol coefficients)
 #now we need to calculate the initial reaction rates, giving us the values that we will need to optimize
-#first we will define the objective function to minimize the difference between the experimental intial rx rates and the calculated ones
-def objective_function(params,experimental_data,substrates_used,concentration_data,experimental_mole_fractions,experimental_activity_coeffs):
-    #this function will return the sum of squared differences between the experimental initial reaction rates and the calculated ones
-    calculated_initial_rx_rates=initial_reaction_rate(substrates_used,concentration_data,experimental_mole_fractions,experimental_activity_coeffs,params)
-    #now we will extract the initial rx rates from the calculated list
-    calculated_data=[]
-    for i in range(len(calculated_initial_rx_rates)):
-        calculated_data.append(calculated_initial_rx_rates[i][1])
-    #now that we have the calculated data, we can calculate the sum of squared differences
-    residuals = [calc - exp for calc, exp in zip(calculated_data, experimental_data)]    #must write this line better tomorrow
-    return np.array(residuals)  # least_squares will minimize the sum of squares of these
-#now that we defined our objective function, we can use least_squares to optimize the model parameters
 initial_params=[20,0.1,0.1,0.1]   #initial guess
 bounds=([0, 0, 0, 0], [np.inf, 1, 1, 1])   #bounds for the parameters
 result=least_squares(objective_function,initial_params, args=(experimental_initial_rx_rates, substrates_and_h2o_present, concentration_datas, substrates_molar_fractions, oacid_and_ethanol_coeffs), bounds=bounds)
 optimized_params=result.x
 #now that we have the optimized parameters, we can start plotting the results for the different solvents
-#heyyyy
-print(optimized_params)
-#now we continue
-#LOL
+#now we will calculate the initial reaction rates for all solvents using this optimized parameters
+solvents_initial_rx_rates=[]    #this list will store the initial reaction rates for each solvent
+solvents_activity_coeffs=[]   #thislist will store the activity coeffs of oleic acid and ethanol for each solvent
+for i in range(len(solvent_used)):
+    solvent_to_evaluate=solvent_used[i]
+    susbtrates_molar_fractions_for_specific_solvent=get_components_molar_fractions(substrates_and_h2o_present, concentration_datas, solvent_to_evaluate, T, P)
+    activity_coefficients_for_specific_solvent=get_activity_coefficients(substrates_and_h2o_present, solvent_to_evaluate, susbtrates_molar_fractions_for_specific_solvent, T, P)
+    initial_rx_rates_for_specific_solvent=initial_reaction_rate(substrates_and_h2o_present, concentration_datas, susbtrates_molar_fractions_for_specific_solvent, activity_coefficients_for_specific_solvent, optimized_params)
+    #with this we have the initial reaction rates for the specific solvent
+    rx_rates_for_solvent=[]
+    activity_coeffs_for_solvent=[]
+    for j in range(len(initial_rx_rates_for_specific_solvent)):
+        rx_rates_for_solvent.append(initial_rx_rates_for_specific_solvent[j][1])  #we append the initial reaction rates for the specific solvent
+        activity_coeffs_for_solvent.append([activity_coefficients_for_specific_solvent[j][1][0],activity_coefficients_for_specific_solvent[j][1][1]])  #we append the activity coefficients for the specific solvent
+    solvents_initial_rx_rates.append(rx_rates_for_solvent)
+    solvents_activity_coeffs.append(activity_coeffs_for_solvent)
+#now we have the initial reaction rates for each solvent under the same experimental conditions
+#we can now plot all results in a single graph
+
+plt.figure()
+colors = ['b', 'g', 'r', 'c']  # Choose as many colors as solvents
+ethanol_conc = concentration_datas[1][0]  # X axis
+
+for i, solvent in enumerate(solvent_used):
+    rates = solvents_initial_rx_rates[i]
+    plt.plot(ethanol_conc, rates, marker='o', color=colors[i % len(colors)], label=solvent)
+
+plt.xlabel("Ethanol Concentration (mol/L)")
+plt.ylabel("Initial Reaction Rate (units)")
+plt.title("Initial Reaction Rate vs Ethanol Concentration for Different Solvents")
+plt.legend()
+plt.grid(True)
+plt.show()
+#with this we have plotted the initial reaction rates for each solvent under the same experimental conditions in a single graph
+#to finalize, we will plot the activity coefficients of ethanol and oleic acid for each solvent
+ethanol_conc=concentration_datas[1][0]   #X axis
+for i, solvent in enumerate(solvent_used):
+    activity_coeffs_for_solvent = solvents_activity_coeffs[i]
+    oleic_acid_gammas = [coeff[0] for coeff in activity_coeffs_for_solvent]  # index 0: oleic acid
+    ethanol_gammas   = [coeff[1] for coeff in activity_coeffs_for_solvent]   # index 1: ethanol
+
+    plt.figure()
+    plt.plot(ethanol_conc, oleic_acid_gammas, marker='o', label='Oleic Acid')
+    plt.plot(ethanol_conc, ethanol_gammas, marker='s', label='Ethanol')
+    plt.xlabel("Ethanol Concentration (mol/L)")
+    plt.ylabel("Activity Coefficient")
+    plt.title(f"Activity Coefficients vs Ethanol Concentration in {solvent.capitalize()}")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+#with this we are set
+
 
         
 
