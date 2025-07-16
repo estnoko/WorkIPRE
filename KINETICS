@@ -1,0 +1,176 @@
+import kinetics
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import norm
+from scipy.optimize import least_squares
+from thermo.unifac import UNIFAC, UFSG, UFIP
+from thermo.chemical import Chemical
+from ugropy import Groups
+#First we define the conditions fow which we will obtain the corresponding activity coefficients and initial reaction rate
+T=40+273.15    #Temperature in Kelvin
+P=100000       #Pressure in Pascals
+substrates_and_h2o_present=['oleic acid','ethanol','water']   #List of substrates and water present in the solution
+concentration_datas=[[[0.2,0.2,0.2,0.2,0.2,0.2,0.2],'mol/L'],[[0.05,0.1,0.2,0.3,0.5,0.75,1],'mol/L'],[[0.4,0.4,0.43,0.47,0.57,0.73,0.83],'g/L']]       #List of concentration of each component present and the units they are in (they must be in mol/L or g/L)
+#the order in which you submit the components name must be the same as the order in which you submit the concentrations
+solvent_used=['hexane','heptane','cyclohexane','isooctane']               #list of solvents used in the solution
+#first we define a complimentary function to help the main function we will later on define
+def get_component_properties(component,T,P):
+    # the fed inputs are the component name, temperature in Kelvin and pressure in pascals
+    component_name=Chemical(component,T=T,P=P)
+    density=component_name.rho
+    molar_mass=component_name.MW
+    #It returns a list containing the molar mass and density of the component
+    return [density,molar_mass]
+#Once you determine the conditions and the components you want to evaluate, you can use the following functions(3 in total) to obtain the activity coefficients and initial rate reaction
+def get_components_molar_fractions(substrates_used,concentration_data,solvent_used,T,P):
+    #this function will return a list of molar fractions of the components present in the solution for every variation you submit
+    #first, it will determine the molar mass and density of each component and solvent using Chemical from thermo
+    molar_fractions=[]
+    #first we get the properties of the solvent
+    solvent_density,solvent_molar_mass=get_component_properties(solvent_used,T,P)
+    #now we will obtain the moles of the solvent
+    solvent_moles=solvent_density*1/solvent_molar_mass   #assuming 1 L of solvent, we get the values in kg/m3 but to convert it to g/L we don't need to multiply by 1000
+    components_present=len(substrates_used)
+    experiments_to_evaluate=len(concentration_data[0][0])    #this is the number of experiments we want to evaluate
+    for i in range(experiments_to_evaluate):
+        #first we want to obtain the data from the first experiment to evaluate
+        experiment_concentrations=[]
+        experiment_units=[]
+        for j in range(components_present):
+            comp_conc=concentration_data[j][0][i]   #this is the concentration of the first component
+            comp_unit=concentration_data[j][1]
+            experiment_concentrations.append(comp_conc)
+            experiment_units.append(comp_unit)
+        #with this we have the concentration and units of every component present in the experiment
+        #now we need to calculate the moles of each component(assuming 1 L of solution and using the molar mass and density of each component)
+        components_moles=[]
+        for k in range(components_present):
+            comp_name=substrates_used[k]
+            comp_conc=experiment_concentrations[k]
+            comp_unit=experiment_units[k]
+            density_k,MW_k=get_component_properties(comp_name,T,P)
+            if comp_unit=='g/L':
+                moles_k=(comp_conc*1)/MW_k    #assuming the 1L of solution
+            elif comp_unit=='mol/L':
+                moles_k=comp_conc*1
+            else:
+                raise ValueError('Units must be g/L or mol/L')
+            components_moles.append(moles_k)
+        #now we can finally calculate their molar fractions
+        total_moles=solvent_moles+sum(components_moles)
+        k_mole_fractions=[]
+        for s in range(len(components_moles)):
+            mole_frac=components_moles[s]/total_moles
+            k_mole_fractions.append(mole_frac)
+        #we append the solvent molar fraction
+        k_mole_fractions.append(solvent_moles/total_moles)
+        molar_fractions.append([i+1,k_mole_fractions])   #we append the experiment number and the corresponding molar fractions of each component
+    return molar_fractions
+#with this function we obtain the molar fractions of each component in each experiment we wish to evaluate
+#now we proceed to define the function that will calculate the activity coefficients of each experiment
+def get_activity_coefficients(substrates_used,solvent_used,experiments_molar_fractions,T,P):
+    #This function will return a list of activity coefficients for each component in each experiment
+    activity_coefficients=[]
+    #first we must define the chemical subgroups of every component
+    chemical_subgroups=[]
+    number_of_comp=len(substrates_used)+ 1  #+1 for the solvent used
+    list_of_all_components=substrates_used+solvent_used  #this creates a list with all components present in the solution
+    for i in range(number_of_comp):
+        component_name=list_of_all_components[i]
+        component_subgroups_names = Groups(component_name)
+        sub = component_subgroups_names.unifac.subgroups
+        # Build subgroup name-to-index dict using .group attribute
+        name2idx = {UFSG[k].group: k for k in UFSG}
+        # Map ugropy output to indexes
+        index = {name2idx[name]: count for name, count in sub.items()}
+        chemical_subgroups.append(index)
+    #now that we have the chemical subgroups of each component and the molar fractions of each component in each experiment, we can get the activity coefficients for each one
+    number_of_experiments=len(experiments_molar_fractions)
+    for j in range(number_of_experiments):
+        model=UNIFAC.from_subgroups(T=T,xs=experiments_molar_fractions[j][1],chemgroups=chemical_subgroups,subgroups=UFSG,interaction_data=UFIP,version=0)
+        activity_coeffs=model.gammas()
+        #we append the activity coefficients of each component of the experiment in the list
+        activity_coefficients.append([j+1,activity_coeffs])  #we append the experiment number and the corresponding activity coefficients of each component
+    return activity_coefficients
+#this function gives us the activity coefficients of each component in each experiment
+#now we can define the function that will determine the initial reaction rate of each experiment and plot the results
+def initial_reaction_rate(substrates_used,concentration_data,experimental_mole_fractions,experimental_activity_coeffs,params):
+    #this function will return a list of initial reaction rates for the different experiments and plot the results
+    #Comment to teach:This part would require to use a python solver to find the correct kinetic parameters from the reaction rate equation, will have preedetermined values as stand-ins for now
+    initial_rx_rates=[]
+    #first we define the kinetic equation
+    initial_rx_rate=kinetics.Generic(params=['Vm','km1','km2','Ki'],species=['activity_1','activity_2'],rate_equation='(Vm*activity_1*activity_2)/(km1*activity_2*(1+activity_2/Ki)+km2*activity_1+activity_1*activity_2)')
+    #we will use the activity coefficients and molar fractions to obtain the activities of the two components of interest
+    number_of_experiments=len(experimental_mole_fractions)
+    for i in range(number_of_experiments):
+        initial_rx_rate.parameters={'Vm':params[0],'km1':params[1],'km2':params[2],'Ki':params[3]}   #This parameters are to be perfected with a solver
+        #we will use the first two components as the ones of interest
+        actv_first_component=experimental_mole_fractions[i][1][0]*experimental_activity_coeffs[i][1][0]  #activity of the first component in the i experiment
+        actv_second_component=experimental_mole_fractions[i][1][1]*experimental_activity_coeffs[i][1][1]  #activity of the second component in the i experiment
+        #now that we set the activities of the experiment, we can calculate the corresponding initial reaction rate
+        Vi_i=kinetics.Model()
+        Vi_i.append(initial_rx_rate)
+        Vi_i.set_species={'activity_1':actv_first_component,'activity_2':actv_second_component}
+        #Now with the model set we can try and run the model to see what initial reaction rate we get
+        Vi_i.setup_model()
+        initial_rate_rx_i=Vi_i.run_model()
+        #we append the initial reaction rate of the i experiment
+        initial_rx_rates.append([i+1,initial_rate_rx_i])
+    #now we can plot the results
+    desired_component_conc=[]
+    initial_reaction_rates=[]
+    for i in range(number_of_experiments):
+        desired_component_conc.append(concentration_data[0][0][i])
+        initial_reaction_rates.append(initial_rx_rates[i][1])
+    plt.figure()
+    plt.plot(desired_component_conc, initial_reaction_rates, "o-", label=f"{substrates_used[0]} concentration")
+    plt.xlabel(f"Concentration of {substrates_used[0]} ")
+    plt.ylabel("Initial Reaction Rate (units)")
+    plt.title(f"Initial Reaction Rate vs {substrates_used[0]} Concentration")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+    return initial_rx_rates
+#Now we can use the defined functions to obtain all the data we desire
+#we will obtain the results for our different experiments and solvents used
+#we will also plot the different results in a single graph
+#before working with all solvents, we must calibrate the model parameters with the first solvent, being hexane in this case
+#now we will define the experimentally obtained initial reaction rates for the first solvent and optimize the model parameters that best fit the data
+experimental_initial_rx_rates=[0.002688075733451346, 0.0033269997642950258, 0.0026868635364406496, 0.0022925724071250246, 0.0019220826699120193, 0.0015921341882489818, 0.001172136785850005]
+#we will use the first solvent to calibrate the model parameters
+solvent_to_evaluate=solvent_used[0]   #hexane
+substrates_molar_fractions=get_components_molar_fractions(substrates_and_h2o_present,concentration_datas,solvent_to_evaluate,T,P)
+#this will give us the molar fraction of each component in each experiment with hexane as our solvent
+oacid_and_ethanol_coeffs=get_activity_coefficients(substrates_and_h2o_present,solvent_to_evaluate,substrates_molar_fractions,T,P)
+#this will give us the activity coefficients of each component in each experiment (note that for this final part we only care about oacid and ethanol coefficients)
+#now we need to calculate the initial reaction rates, giving us the values that we will need to optimize
+#first we will define the objective function to minimize the difference between the experimental intial rx rates and the calculated ones
+def objective_function(params,experimental_data,substrates_used,concentration_data,experimental_mole_fractions,experimental_activity_coeffs):
+    #this function will return the sum of squared differences between the experimental initial reaction rates and the calculated ones
+    calculated_initial_rx_rates=initial_reaction_rate(substrates_used,concentration_data,experimental_mole_fractions,experimental_activity_coeffs,params)
+    #now we will extract the initial rx rates from the calculated list
+    calculated_data=[]
+    for i in range(len(calculated_initial_rx_rates)):
+        calculated_data.append(calculated_initial_rx_rates[i][1])
+    #now that we have the calculated data, we can calculate the sum of squared differences
+    residuals = [calc - exp for calc, exp in zip(calculated_data, experimental_data)]
+    return np.array(residuals)  # least_squares will minimize the sum of squares of these
+#now that we defined our objective function, we can use least_squares to optimize the model parameters
+initial_params=[20,0.1,0.1,0.1]   #initial guess
+bounds=([0, 0, 0, 0], [np.inf, 1, 1, 1])   #bounds for the parameters
+result=least_squares(objective_function,initial_params, args=(experimental_initial_rx_rates, substrates_and_h2o_present, concentration_datas, substrates_molar_fractions, oacid_and_ethanol_coeffs), bounds=bounds)
+optimized_params=result.x
+#now that we have the optimized parameters, we can start plotting the results for the different solvents
+#heyyyy
+print(optimized_params)
+#now we continue
+#LOL
+
+        
+
+
+
+
+
+
+

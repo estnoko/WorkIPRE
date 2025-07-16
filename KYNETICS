@@ -1,0 +1,131 @@
+import kinetics
+import matplotlib.pyplot as plt
+initial_rx_rate=kinetics.Generic(params=['Vm','km1','km2','Ki'],species=['activity_1','activity_2'],rate_equation='(Vm*activity_1*activity_2)/(km1*activity_2*(1+activity_2/Ki)+km2*activity_1+activity_1*activity_2)')
+#with this we are able to design our reaction rate based on activity coefficients, however, now we need to find a way to properly define the activity coefficients
+#activity is coefficients multiplied by molar fractions
+#P=1bar T=40 C
+#to obtain any molar fraction we must define density and molar mass of componentes using the CoolProp library
+import CoolProp.CoolProp as CP 
+def get_component_properties(component,T,P):
+    # the fed inputs are the component name, temperature in Kelvin and pressure in pascals
+    #now we define the molar mass and density of the components using CoolProp
+    molar_mass=CP.PropsSI('M',component,'T',T,'P',P)
+    density=CP.PropsSI('D',component,'T',T,'P',P)
+    #we return the molar mass and density
+    return molar_mass,density
+#now we will get the activity coefficients in the desired solution using the UNIFAC method
+    
+#first we import the necessary libraries
+from scipy.stats import norm
+from thermo.unifac import UNIFAC, UFSG, UFIP
+T = 40 + 273.15               # insert the corresponding Temperature in 'K'
+P=100000                      # insert the corresponding pressure in 'Pa'  
+#now we will define the molar fractions and the ammount of components present in the solution
+#you can use get_component_properties to facilitate converting all your values into molar fractions
+components_used=[]       #list of components used in the solution, they must be written in the CoolProp format
+number_of_components=4           #number of components present in the solution
+for i in range(number_of_components):
+    component_name=input('Enter the name of component {i+1} in CoolProp format:')
+    component_concentration=int(input('enter the concentration of the corresponding component in mol/L or g/L'))
+    components_used.append([component_name,component_concentration])
+#Now that we defined the components present, we calculate their propperties with CoolProp and define their corresponding molar fraction
+#we will create a funtion that recieves the dictionary of concentrations, temperature, pressure, units of concentration(must be in mol/L or g/L) and total solution volume in L
+def get_mole_fractions(conc_list,units,volume_L,T,P):
+    #conc_dict is a list containg the name of the components and the concentration they are in
+    #units is a string that can be 'mol/L' or 'g/L'
+    moles_list=[]
+    total_moles=0
+    for item in conc_list:
+        component=item[0]
+        conc=item[1]
+        #first we must evaluate with which units we are working with
+        if units=='mol/L':
+            moles=conc*volume_L
+        elif units=='g/L':
+            molar_mass=get_component_properties(component,T,P)
+            molar_mass_g=molar_mass*1000
+            moles=(conc*volume_L)/molar_mass_g
+        else:
+            raise ValueError('Units must be mol/L or g/L')
+        moles_list.append([component,moles])
+        total_moles+=moles
+    #now we can finally calculate the corresponding mole fractions
+    mole_fractions=[]
+    for component, moles in moles_list:
+        mole_fractions.append([component, moles/total_moles])
+    return mole_fractions
+#We can use this function to easily obtain the mole fractions we need to input in the UNIFAC model
+xs=[]
+for i in range(number_of_components):
+    mole_frac=float(input('enter the mole fraction of component {i+1}'))
+    xs.append(mole_frac)
+#with this we have defined the mole fractions of each component
+
+#Now we need to define our chemgroups
+import requests
+def opsin_name_to_smiles(name):
+    url = f"https://opsin.ch.cam.ac.uk/opsin/{name}.smi"
+    response = requests.get(url)
+    if response.status_code == 200 and response.text.strip():
+        return response.text.strip()
+    else:
+        return None   
+#now we use the defined function to obtain the smiles of our components
+smiles_list=[] 
+for i in range(number_of_components):
+    component_name=components_used[i][0]
+    smiles=opsin_name_to_smiles(component_name)
+    smiles_list.append(smiles)
+#now that we have our smiles, we can define the subgroup index for each component
+#from thermo.unifac import GroupDecomposition
+#decomposer = GroupDecomposition()
+#group_index=[]
+#for i in range(len(smiles_list)):
+    #groups=decomposer.smiles_to_groups(smiles_list[i])
+    #group_index.append(groups)
+#this didnt work for now :(
+#so we will use the ugropy library to obtain the group indexes
+#now that we have the group indexes of each component, we can obtain the activity coefficients
+group_index=[]
+from ugropy import Groups
+for i in range(number_of_components):
+    component_name=components_used[i][0]
+    subgroups_names = Groups(component_name)
+    sub = subgroups_names.unifac.subgroups
+    # Build subgroup name-to-index dict using .group attribute
+    name2idx = {UFSG[k].group: k for k in UFSG}
+    # Map ugropy output to indexes
+    index = {name2idx[name]: count for name, count in sub.items()}
+    group_index.append(index)
+#this is to define the activity coefficients
+#since our first goal is to replicate the behaviour present in the paper, it is best to start with those components
+model = UNIFAC.from_subgroups(
+    T=T,
+    xs=xs,
+    chemgroups=group_index,
+    subgroups=UFSG,
+    interaction_data=UFIP,
+    version=0
+)
+#with this, we should be able to obtain the activity coefficients we need to input in our kinetics function
+#first we define the parameters present in our reaction rate
+#the values provided are sample values and are not indicative to what we should obtain later on
+initial_rx_rate.parameters={'Vm':1,'km1':0.1,'km2':0.1,'Ki':0.1}
+coef_to_use=model.gammas()  #get the activity coefficients from the model
+gamma1=coef_to_use[0]   #activity coefficient for the first component
+gamma2=coef_to_use[1]   #activity coefficient for the second component
+print(gamma1, gamma2)    #print the activity coefficients
+actv1=xs[0]*gamma1   #activity of the first component
+actv2=xs[1]*gamma2   #activity of the second component
+#now we set the activity parameters in the initial rate rx formula
+Vi=kinetics.Model()
+Vi.append(initial_rx_rate)
+Vi.set_species={'activity_1':actv1,'activity_2':actv2}
+#Now with the model set we can try and run the model to see what initial reaction rate we get
+Vi.setup_model()
+Vi.run_model()
+
+
+#Now that we defined the model, we can plot the results
+
+
