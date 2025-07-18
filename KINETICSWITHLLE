@@ -206,46 +206,4 @@ for i, solvent in enumerate(solvent_used):
     plt.legend()
     plt.grid(True)
     plt.show()
-#to finalize, we will plot the initial reaction rates predictions for each solvent along with the experimental values
-#first, we will need to create a list with the experimental results for the different solvents
-experimental_conc_points=[[ 0.05075281826219876, 0.10134351835372094, 0.3014810939384415, 0.7549437915790792, 0.9946268886462357],[0.043583535108958856, 0.09685230024213038, 0.19854721549636787, 0.297820823244552, 0.9927360774818403],[0.0480549199084666, 0.10297482837528594, 0.1967963386727688, 0.299771167048055, 0.9931350114416473],[0.052110302880861475, 0.10350370096939405, 0.2031671666735163, 0.3052233592240994, 1]]
-experimental_initial_rx_rates_for_each_solvent=[[0.002688075733451346, 0.0033269997642950258, 0.0022925724071250246, 0.0015921341882489818, 0.001172136785850005],[0.0019479592190416777, 0.0027590823789222467, 0.0024098397183558875, 0.002085077516501038, 0.0010060161321469432],[0.0013685199588190602, 0.0022421133554823247, 0.0017413783026799077, 0.0015237667072781467, 0.0008799532443477735],[0.0024403987269232, 0.003128098741078647, 0.0026576071818335416, 0.00225823631373946, 0.0012319986118531334]]  #this is the experimental initial reaction rates for hexane
-ethanol_conc_range=np.linspace(0,1,100)  #range of ethanol concentrations for plotting
-for s in range(len(solvent_used)):
-    solvent_to_plot=solvent_used[s]
-    initial_rx_rates_predictions=[]
-    for k in range(len(ethanol_conc_range)):
-        #we will calculate the initial rx rate for each ethanol concentration in the range
-        evaluated_conc=ethanol_conc_range[k]
-        concentration_datasexp=[[[0.2],'mol/L'],[[evaluated_conc],'mol/L'],[[0.6],'g/L']]  #for water we will use a constant concentration of 0.6 g/L, assuming the error this will bring is neglligible
-        substrates_MF=get_components_molar_fractions(substrates_and_h2o_present,concentration_datasexp,solvent_to_plot,T,P)
-        activity_coeffs=get_activity_coefficients(substrates_and_h2o_present,solvent_to_plot,substrates_MF,T,P)
-        initial_rx_rate=initial_reaction_rate(substrates_and_h2o_present,concentration_datasexp,substrates_MF,activity_coeffs,optimized_params)
-        initial_rx_rates_predictions.append(initial_rx_rate[0][1])
-    #now we can plot the initial rx rates
-    plt.figure()
-    plt.plot(ethanol_conc_range, initial_rx_rates_predictions, label=f'Predicted Initial Rx Rate ({solvent_to_plot})')
-    plt.scatter(experimental_conc_points[s], experimental_initial_rx_rates_for_each_solvent[s], color='red', label='Experimental Initial Rx Rates')
-    plt.xlabel("Ethanol Concentration (mol/L)")
-    plt.ylabel("Initial Reaction Rate (units)")
-    plt.title(f"initial rx rates for different ethanol concentrations in {solvent_to_plot.capitalize()}")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
-
-
-
-
-
-
 #with this we are set
-
-
-        
-
-
-
-
-
-
-
