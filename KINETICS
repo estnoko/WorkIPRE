@@ -155,6 +155,7 @@ oacid_and_ethanol_coeffs=get_activity_coefficients(substrates_and_h2o_present,so
 #this will give us the activity coefficients of each component in each experiment (note that for this final part we only care about oacid and ethanol coefficients)
 #now we need to calculate the initial reaction rates, giving us the values that we will need to optimize
 optimized_params=optimize_model_parameters(experimental_initial_rx_rates, substrates_and_h2o_present, concentration_datas, substrates_molar_fractions, oacid_and_ethanol_coeffs)
+print(optimized_params)
 #now that we have the optimized parameters, we can start plotting the results for the different solvents
 #now we will calculate the initial reaction rates for all solvents using this optimized parameters
 solvents_initial_rx_rates=[]    #this list will store the initial reaction rates for each solvent
